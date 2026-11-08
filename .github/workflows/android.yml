@@ -1,56 +1,32 @@
-name: Build APK
+name: Export sources
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-
-permissions:
-  contents: write
-
-concurrency:
-  group: build-apk
-  cancel-in-progress: true
 
 jobs:
-  build:
+  export:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-
-      - name: Rust targets for Android
-        run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
-
-      - name: Build debug APK
+      - name: Collect sources
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
-
-      - name: Collect APKs
-        run: |
-          mkdir -p out
-          find . -path '*/build/outputs/apk/debug/*.apk' -exec cp {} out/ \;
-          ls -la out
+          mkdir -p export
+          git ls-files > export/_all_files.txt
+          git ls-files -z -- '*.kt' '*.java' '*.kts' '*.gradle' '*.xml' '*.properties' '*.toml' '*.json' '*.md' '*.yml' \
+            | while IFS= read -r -d '' f; do
+                case "$f" in
+                  LWJGL/*|Terracotta/*|*/res/values-*) continue ;;
+                esac
+                if [ "$(stat -c%s "$f")" -lt 400000 ]; then
+                  mkdir -p "export/$(dirname "$f")"
+                  cp "$f" "export/$f"
+                fi
+              done
+          find export -type f | wc -l
+          du -sh export
 
       - uses: actions/upload-artifact@v7
         with:
-          name: apk
-          path: out/*.apk
-
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "build-${{ github.run_number }}" out/*.apk \
-            --title "Build ${{ github.run_number }}" \
-            --notes "Debug build ${{ github.sha }}" \
-            --prerelease
+          name: sources
+          path: export
